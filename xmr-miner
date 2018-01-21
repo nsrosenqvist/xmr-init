@@ -1,0 +1,140 @@
+#!/bin/bash
+# /etc/init.d/xmr-miner
+# version 0.0.1 2018-01-21 (YYYY-MM-DD)
+#
+### BEGIN INIT INFO
+# Provides:       xmr-miner
+# Required-Start: $local_fs $remote_fs screen-cleanup
+# Required-Stop:  $local_fs $remote_fs
+# Should-Start:   $network
+# Should-Stop:    $network
+# Default-Start:  2 3 4 5
+# Default-Stop:   0 1 6
+# Short-Description:    Monero Miner
+# Description:    Starts the Monero Miner
+### END INIT INFO
+
+# Settings
+SERVICE='Monero Miner'
+USERNAME='root'
+ME="$(whoami)"
+
+EXECUTABLE='/opt/cpuminer-multi/cpuminer'
+LOG_FILE='/var/log/xmr-miner.log' # Not used (monitor not supported as of now)
+PID_FILE='/var/run/xmr-miner.pid' # Not used
+STOP_GRACE_TIME=5
+KILL_GRACE_TIME=5
+
+XMR_USER=""
+XMR_POOL=""
+XMR_MAXTEMP=80
+XMR_THREADS=4
+
+as_user() {
+	if [ "$ME" == "$USERNAME" ] ; then
+		bash -c "$1"
+	else
+		su - "$USERNAME" -c "$1"
+	fi
+}
+
+daemon_pid() {
+	pgrep $(basename "$EXECUTABLE")
+}
+
+daemon_status() {
+	local pid=$(daemon_pid)
+
+	if [ -n "$pid" ]; then
+		kill -0 $pid > /dev/null 2>&1
+		return $?
+	else
+		return 1
+	fi
+}
+
+daemon_start() {
+	if daemon_status; then
+		echo "$SERVICE is already running (pid: $(daemon_pid))"
+	else
+		echo "Starting $SERVICE..."
+		as_user "$EXECUTABLE --algo=cryptonight --threads=$XMR_THREADS --max-temp=$XMR_MAXTEMP --url=$XMR_POOL --user=$XMR_USER --pass=x --background --quiet"
+
+		sleep 1
+
+		if daemon_status; then
+			echo "$SERVICE is running (pid: $(daemon_pid))"
+		else
+			echo "Failed to start $SERVICE"
+		fi
+	fi
+}
+
+daemon_stop() {
+	if daemon_status; then
+		echo "Stopping $SERVICE (pid: $(daemon_pid))"
+		kill -2 $(daemon_pid)
+
+		sleep $STOP_GRACE_TIME
+
+		if daemon_status; then
+			echo "Failed to stop $SERVICE"
+		else
+			echo "$SERVICE stopped"
+		fi
+	else
+		echo "$SERVICE isn't running"
+	fi
+}
+
+daemon_kill() {
+	if daemon_status; then
+		echo "Sending kill signal to $SERVICE (pid: $(daemon_pid))"
+		kill -9 $(daemon_pid)
+
+		sleep $KILL_GRACE_TIME
+
+		if daemon_status; then
+			echo "Failed to stop $SERVICE"
+		else
+			echo "$SERVICE stopped"
+		fi
+	else
+		echo "$SERVICE isn't running"
+	fi
+}
+
+daemon_monitor() {
+	tail -f "$LOG_FILE"
+}
+
+# Main
+case "$1" in
+	start)
+		daemon_start
+	;;
+	stop)
+		daemon_stop
+	;;
+	restart)
+		daemon_stop
+		daemon_start
+	;;
+	kill)
+		daemon_kill
+	;;
+	monitor)
+		daemon_monitor
+	;;
+	status)
+		if daemon_status; then
+			echo "$SERVICE is running (pid: $(daemon_pid))"
+		else
+			echo "$SERVICE isn't running"
+		fi
+	;;
+	*)
+		echo "Usage: $0 {start|stop|status|restart|kill|monitor}"
+		exit 1
+	;;
+esac
